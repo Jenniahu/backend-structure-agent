@@ -1,20 +1,27 @@
 {
-  "name": "webapp",
+  "name": "archlearn",
+  "version": "0.1.0",
+  "description": "后端架构学习 Agent —— 讲解+问答+作业+结构化反馈的个性化学习平台",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "wrangler pages dev",
-    "deploy": "npm run build && wrangler pages deploy",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "migrate": "tsx src/db/migrate.ts",
+    "build": "tsc --noEmit && echo 'typecheck passed'",
+    "test": "curl http://localhost:3000/api/health"
   },
   "dependencies": {
-    "hono": "^4.12.23"
+    "@hono/node-server": "^1.13.7",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "hono": "^4.12.23",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
-    "@hono/vite-build": "^1.2.0",
-    "@hono/vite-dev-server": "^0.25.2",
-    "vite": "^6.3.5",
-    "wrangler": "^4.4.0"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

@@ -1,0 +1,32 @@
+# Render 部署蓝图(Blueprint)
+# 在 Render 控制台选择 "New +" → "Blueprint",连接你的仓库即可自动创建以下资源。
+services:
+  - type: web
+    name: archlearn
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    # 启动前先跑数据库迁移(幂等,可重复执行),再启动服务
+    startCommand: npm run migrate && npm start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: archlearn-db
+          property: connectionString
+      - key: LLM_BASE_URL
+        value: https://llm-api.mcisaas.com/v1
+      - key: LLM_MODEL_STRONG
+        value: gpt-5.4
+      - key: LLM_MODEL_FAST
+        value: gpt-5.4-mini
+      # 以下两个为敏感值,请在 Render 控制台手动填写(不要写进仓库):
+      - key: LLM_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+
+databases:
+  - name: archlearn-db
+    plan: free
+    databaseName: archlearn
+    user: archlearn
