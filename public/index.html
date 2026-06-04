@@ -68,10 +68,10 @@
       <section id="learn-panel" class="flex-1 flex flex-col overflow-hidden">
         <div id="chat-box" class="flex-1 overflow-y-auto chat-scroll p-6 space-y-4"></div>
         <div class="border-t border-slate-200 bg-white p-4 shrink-0">
-          <div class="flex gap-2 max-w-3xl mx-auto">
-            <input id="chat-input" placeholder="说说你的想法,或问我任何架构问题..."
-              class="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
-            <button id="chat-send" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 rounded-lg">
+          <div class="flex gap-2 max-w-3xl mx-auto items-end">
+            <textarea id="chat-input" rows="1" placeholder="说说你的想法,或问我任何架构问题...(Shift+Enter 换行)"
+              class="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none leading-relaxed max-h-48 overflow-y-auto chat-scroll"></textarea>
+            <button id="chat-send" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg shrink-0">
               <i class="fas fa-paper-plane"></i>
             </button>
           </div>

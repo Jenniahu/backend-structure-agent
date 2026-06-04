@@ -108,11 +108,18 @@ function showTyping() {
 }
 function hideTyping() { const t = $('typing-indicator'); if (t) t.remove() }
 
+// 让 textarea 随内容自动增高(上限由 CSS max-h-48 控制,超出可滚动)
+function autoGrow(el) {
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 192) + 'px'
+}
+
 async function sendChat() {
   const input = $('chat-input')
   const text = input.value.trim()
   if (!text) return
   input.value = ''
+  autoGrow(input) // 发送后重置高度
   addMessage('user', text)
   state.history.push({ role: 'user', content: text })
   showTyping()
@@ -249,7 +256,16 @@ function bindEvents() {
     }
   })
   $('chat-send').onclick = sendChat
-  $('chat-input').onkeydown = (e) => { if (e.key === 'Enter') sendChat() }
+  const chatInput = $('chat-input')
+  // Enter 发送,Shift+Enter 换行
+  chatInput.onkeydown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendChat()
+    }
+  }
+  // 输入时自动增高
+  chatInput.oninput = () => autoGrow(chatInput)
   $('submit-answer').onclick = submitAnswer
   $('logout-btn').onclick = async () => {
     await api('/api/auth/logout', { method: 'POST' })
