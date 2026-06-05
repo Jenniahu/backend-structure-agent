@@ -1,8 +1,11 @@
 // ============ ArchLearn 前端逻辑 ============
+
+// ---------- 工具函数 ----------
 const $ = (id) => document.getElementById(id)
+
 const api = async (url, opts = {}) => {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
     ...opts,
   })
   if (res.status === 401) { location.href = '/login.html'; throw new Error('未登录') }
@@ -11,12 +14,60 @@ const api = async (url, opts = {}) => {
   return data
 }
 
+// ---------- Markdown 渲染 ----------
+// 配置 marked
+marked.setOptions({
+  breaks: true,        // 单换行转 <br>
+  gfm: true,           // GitHub Flavored Markdown
+})
+
+// 自定义渲染器：代码块加高亮 + 复制按钮
+const renderer = new marked.Renderer()
+renderer.code = function(code, lang) {
+  let highlighted = code
+  let langLabel = lang || ''
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      highlighted = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+    } else {
+      highlighted = hljs.highlightAuto(code).value
+      langLabel = ''
+    }
+  } catch {}
+  const escapedCode = code.replace(/`/g, '&#96;')
+  return `<pre><button class="copy-btn" onclick="copyCode(this)" data-code="${encodeURIComponent(escapedCode)}"><i class="fas fa-copy"></i> 复制</button><code class="language-${lang || 'plaintext'}">${highlighted}</code></pre>`
+}
+marked.use({ renderer })
+
+/**
+ * 将 Markdown 字符串转换为安全 HTML
+ */
+function renderMd(text) {
+  if (!text) return ''
+  const raw = marked.parse(text)
+  return DOMPurify.sanitize(raw, {
+    ADD_ATTR: ['onclick', 'data-code'],  // 允许复制按钮的属性
+    FORCE_BODY: true,
+  })
+}
+
+/** 复制代码块内容到剪贴板 */
+window.copyCode = function(btn) {
+  const code = decodeURIComponent(btn.dataset.code)
+  navigator.clipboard.writeText(code).then(() => {
+    btn.innerHTML = '<i class="fas fa-check"></i> 已复制'
+    setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制' }, 1800)
+  })
+}
+
+// ---------- 全局状态 ----------
 const state = {
   topics: [],
   currentTopic: 'cache',
   currentTopicTitle: '缓存',
   history: [],          // 当前主题的对话历史(短期记忆)
   currentAssignment: null,
+  pendingAttachments: [],  // { type:'image'|'file', name, dataUrl, mimeType }
 }
 
 // ---------- 初始化 ----------
@@ -25,10 +76,20 @@ async function init() {
     const me = await api('/api/auth/me')
     $('user-email').textContent = me.user.email
   } catch { return }
+  initMarkdown()
   await loadTopics()
   await loadProfile()
   selectTopic('cache', '缓存')
   bindEvents()
+  initLightbox()
+}
+
+/** 初始化 marked — 注册 hljs 后再一次性设置（避免重复注册） */
+function initMarkdown() {
+  // hljs 注册常用语言（CDN 已逐个引入，此处无需再 register）
+  // 仅做一次配置保护
+  if (window._mdInited) return
+  window._mdInited = true
 }
 
 // ---------- 课程地图 ----------
@@ -80,18 +141,46 @@ function selectTopic(id, title) {
   $('chat-box').innerHTML = ''
   $('report').classList.add('hidden')
   $('report').innerHTML = ''
+  clearAttachments()
   addMessage('assistant', `我们开始学习「${title}」。我会带你一步步建立思路,随时打断我提问。准备好了吗?先告诉我:你觉得${title}主要是用来解决什么问题的?`)
   loadAssignments(id)
 }
 
-// ---------- 学习问答 ----------
-function addMessage(role, text) {
+// ---------- 消息渲染 ----------
+/**
+ * @param {'user'|'assistant'} role
+ * @param {string} text - Markdown 文本
+ * @param {Array} attachments - 附件列表 [{type, name, dataUrl}]
+ */
+function addMessage(role, text, attachments = []) {
   const box = $('chat-box')
   const isUser = role === 'user'
   const div = document.createElement('div')
   div.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`
+
+  // 构建附件 HTML
+  let attachHtml = ''
+  if (attachments && attachments.length) {
+    attachHtml = attachments.map(a => {
+      if (a.type === 'image') {
+        return `<img src="${a.dataUrl}" class="msg-img" alt="${a.name}" onclick="openLightbox('${a.dataUrl}')" />`
+      }
+      return `<div class="flex items-center gap-2 text-sm mt-1 ${isUser ? 'text-indigo-100' : 'text-slate-500'}">
+        <i class="fas fa-file"></i> <span>${a.name}</span>
+      </div>`
+    }).join('')
+  }
+
+  const bubbleCls = isUser
+    ? 'user-bubble bg-indigo-600 text-white'
+    : 'bg-white text-slate-700 border border-slate-200'
+
   div.innerHTML = `
-    <div class="max-w-2xl ${isUser ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 border border-slate-200'} rounded-2xl px-4 py-3 shadow-sm whitespace-pre-line leading-relaxed">${text}</div>`
+    <div class="max-w-2xl ${bubbleCls} rounded-2xl px-4 py-3 shadow-sm">
+      ${attachHtml}
+      <div class="md-content">${renderMd(text)}</div>
+    </div>`
+
   box.appendChild(div)
   box.scrollTop = box.scrollHeight
   return div
@@ -108,21 +197,89 @@ function showTyping() {
 }
 function hideTyping() { const t = $('typing-indicator'); if (t) t.remove() }
 
-// 让 textarea 随内容自动增高(上限由 CSS max-h-48 控制,超出可滚动)
+// textarea 随内容自动增高
 function autoGrow(el) {
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 192) + 'px'
 }
 
+// ---------- 附件管理 ----------
+/** 将 File 对象转成 dataUrl */
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => resolve(e.target.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+async function addAttachment(file) {
+  const isImage = file.type.startsWith('image/')
+  const dataUrl = await fileToDataUrl(file)
+  const att = { type: isImage ? 'image' : 'file', name: file.name, dataUrl, mimeType: file.type }
+  state.pendingAttachments.push(att)
+  renderAttachmentPreview()
+}
+
+function renderAttachmentPreview() {
+  const preview = $('attachment-preview')
+  preview.innerHTML = state.pendingAttachments.map((a, i) => {
+    if (a.type === 'image') {
+      return `<div class="attach-thumb">
+        <img src="${a.dataUrl}" alt="${a.name}">
+        <button class="attach-remove" onclick="removeAttachment(${i})">×</button>
+      </div>`
+    }
+    return `<div class="attach-thumb">
+      <div class="attach-file">
+        <i class="fas fa-file text-indigo-400"></i>
+        <span class="truncate">${a.name}</span>
+      </div>
+      <button class="attach-remove" onclick="removeAttachment(${i})">×</button>
+    </div>`
+  }).join('')
+}
+
+window.removeAttachment = function(i) {
+  state.pendingAttachments.splice(i, 1)
+  renderAttachmentPreview()
+}
+
+function clearAttachments() {
+  state.pendingAttachments = []
+  renderAttachmentPreview()
+}
+
+// ---------- 发送消息 ----------
 async function sendChat() {
   const input = $('chat-input')
   const text = input.value.trim()
-  if (!text) return
+  const attachments = [...state.pendingAttachments]
+
+  if (!text && attachments.length === 0) return
+
   input.value = ''
-  autoGrow(input) // 发送后重置高度
-  addMessage('user', text)
-  state.history.push({ role: 'user', content: text })
+  autoGrow(input)
+  clearAttachments()
+
+  // 在对话框中显示用户消息
+  addMessage('user', text || '（附件）', attachments)
+
+  // 构建发给后端的消息内容（图片以 base64 data URL 携带）
+  let contentForHistory = text
+  if (attachments.length) {
+    const attachDesc = attachments.map(a =>
+      a.type === 'image'
+        ? `[用户上传了图片: ${a.name}，base64数据: ${a.dataUrl.slice(0, 80)}…]`
+        : `[用户上传了文件: ${a.name}]`
+    ).join('\n')
+    contentForHistory = text ? `${text}\n\n${attachDesc}` : attachDesc
+  }
+
+  state.history.push({ role: 'user', content: contentForHistory })
   showTyping()
+
   try {
     const data = await api('/api/chat', {
       method: 'POST',
@@ -185,8 +342,8 @@ async function submitAnswer() {
       }),
     })
     renderReport(data.result)
-    await loadTopics()    // 刷新课程地图掌握度
-    await loadProfile()   // 刷新错题本
+    await loadTopics()
+    await loadProfile()
   } catch (err) {
     alert('批改失败:' + err.message)
   } finally {
@@ -195,7 +352,7 @@ async function submitAnswer() {
   }
 }
 
-// ---------- 结构化打分报告渲染 ----------
+// ---------- 结构化打分报告渲染（含 Markdown）----------
 function renderReport(r) {
   const gradeColor = { A: 'text-green-600', B: 'text-blue-600', C: 'text-amber-600', D: 'text-red-600' }[r.grade] || 'text-slate-600'
   const bar = (score) => {
@@ -211,8 +368,8 @@ function renderReport(r) {
       </div>
       ${bar(d.score)}
       <div class="mt-2 space-y-1 text-sm">
-        ${d.good ? `<p class="text-green-700"><i class="fas fa-check-circle"></i> ${d.good}</p>` : ''}
-        ${d.issue ? `<p class="text-red-600"><i class="fas fa-exclamation-circle"></i> ${d.issue}</p>` : ''}
+        ${d.good ? `<div class="text-green-700 md-content"><i class="fas fa-check-circle"></i> ${renderMd(d.good)}</div>` : ''}
+        ${d.issue ? `<div class="text-red-600 md-content"><i class="fas fa-exclamation-circle"></i> ${renderMd(d.issue)}</div>` : ''}
       </div>
     </div>`).join('')
 
@@ -230,16 +387,28 @@ function renderReport(r) {
       </div>
       <div class="px-6 py-2">${dims}</div>
       <div class="px-6 py-4 bg-slate-50 space-y-2 text-sm">
-        ${r.nextStep ? `<p><i class="fas fa-lightbulb text-amber-500"></i> <b>下一步:</b> ${r.nextStep}</p>` : ''}
-        ${r.followUp ? `<p><i class="fas fa-fire text-red-500"></i> <b>追问挑战:</b> ${r.followUp}</p>` : ''}
+        ${r.nextStep ? `<div class="md-content"><i class="fas fa-lightbulb text-amber-500"></i> <b>下一步:</b> ${renderMd(r.nextStep)}</div>` : ''}
+        ${r.followUp ? `<div class="md-content"><i class="fas fa-fire text-red-500"></i> <b>追问挑战:</b> ${renderMd(r.followUp)}</div>` : ''}
       </div>
     </div>`
   $('report').classList.remove('hidden')
   $('report').scrollIntoView({ behavior: 'smooth' })
 }
 
+// ---------- 图片灯箱 ----------
+window.openLightbox = function(src) {
+  $('lightbox-img').src = src
+  $('lightbox').classList.add('open')
+}
+
+function initLightbox() {
+  $('lightbox-close').onclick = () => $('lightbox').classList.remove('open')
+  $('lightbox').onclick = (e) => { if (e.target === $('lightbox')) $('lightbox').classList.remove('open') }
+}
+
 // ---------- 模式切换 & 事件绑定 ----------
 function bindEvents() {
+  // 模式切换
   document.querySelectorAll('.mode-btn').forEach(b => {
     b.onclick = () => {
       const mode = b.dataset.mode
@@ -255,22 +424,76 @@ function bindEvents() {
       $('practice-panel').classList.toggle('hidden', mode !== 'practice')
     }
   })
+
+  // 发送
   $('chat-send').onclick = sendChat
   const chatInput = $('chat-input')
-  // Enter 发送,Shift+Enter 换行
   chatInput.onkeydown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendChat()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() }
   }
-  // 输入时自动增高
   chatInput.oninput = () => autoGrow(chatInput)
-  $('submit-answer').onclick = submitAnswer
+
+  // 退出
   $('logout-btn').onclick = async () => {
     await api('/api/auth/logout', { method: 'POST' })
     location.href = '/login.html'
   }
+
+  // 提交作业
+  $('submit-answer').onclick = submitAnswer
+
+  // ===== 附件 =====
+
+  // 附件按钮 (通用文件)
+  $('attach-btn').onclick = () => $('file-input').click()
+  $('file-input').onchange = async (e) => {
+    for (const f of e.target.files) await addAttachment(f)
+    e.target.value = ''
+  }
+
+  // 图片专用按钮
+  $('img-btn').onclick = () => $('img-input').click()
+  $('img-input').onchange = async (e) => {
+    for (const f of e.target.files) await addAttachment(f)
+    e.target.value = ''
+  }
+
+  // ===== 粘贴图片 =====
+  document.addEventListener('paste', async (e) => {
+    // 只在聊天输入框聚焦时响应
+    if (document.activeElement !== chatInput &&
+        !$('chat-input-area').contains(document.activeElement)) return
+    const items = e.clipboardData?.items || []
+    let handled = false
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) { await addAttachment(file); handled = true }
+      }
+    }
+    // 若只有纯文本则让默认行为继续
+    if (!handled) return
+  })
+
+  // ===== 拖拽上传 =====
+  const inputArea = $('chat-input-area')
+
+  inputArea.addEventListener('dragenter', (e) => {
+    e.preventDefault(); inputArea.classList.add('drag-over')
+  })
+  inputArea.addEventListener('dragover', (e) => {
+    e.preventDefault()
+  })
+  inputArea.addEventListener('dragleave', (e) => {
+    if (!inputArea.contains(e.relatedTarget)) inputArea.classList.remove('drag-over')
+  })
+  inputArea.addEventListener('drop', async (e) => {
+    e.preventDefault()
+    inputArea.classList.remove('drag-over')
+    const files = Array.from(e.dataTransfer.files)
+    for (const f of files) await addAttachment(f)
+  })
 }
 
 init()

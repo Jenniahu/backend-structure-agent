@@ -6,16 +6,147 @@
   <title>ArchLearn · 后端架构学习</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+  <!-- Markdown 渲染 -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <!-- 安全净化 (防 XSS) -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <!-- 代码高亮 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/java.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>
   <style>
+    /* ===== 滚动条 ===== */
     .chat-scroll::-webkit-scrollbar { width: 6px; }
     .chat-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+    /* ===== 打字指示器 ===== */
     .typing span { animation: blink 1.4s infinite both; }
     .typing span:nth-child(2) { animation-delay: .2s; }
     .typing span:nth-child(3) { animation-delay: .4s; }
     @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+
+    /* ===== Markdown 内容样式 ===== */
+    .md-content { line-height: 1.7; }
+    .md-content h1,.md-content h2,.md-content h3,
+    .md-content h4,.md-content h5,.md-content h6 {
+      font-weight: 600; margin-top: .9em; margin-bottom: .4em;
+    }
+    .md-content h1 { font-size: 1.25em; }
+    .md-content h2 { font-size: 1.1em; }
+    .md-content h3 { font-size: 1em; }
+    .md-content p  { margin-bottom: .6em; }
+    .md-content ul,.md-content ol { padding-left: 1.4em; margin-bottom: .6em; }
+    .md-content li { margin-bottom: .25em; }
+    .md-content blockquote {
+      border-left: 3px solid #6366f1;
+      margin: .6em 0; padding: .4em .9em;
+      background: #f1f5f9; border-radius: 0 6px 6px 0;
+      color: #475569;
+    }
+    /* 内联代码 */
+    .md-content :not(pre) > code {
+      background: #f1f5f9; color: #e44c6c;
+      padding: .15em .45em; border-radius: 4px;
+      font-size: .88em; font-family: 'SFMono-Regular',Consolas,monospace;
+    }
+    /* 代码块 */
+    .md-content pre {
+      background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 8px; overflow-x: auto;
+      margin: .7em 0; position: relative;
+    }
+    .md-content pre code {
+      display: block; padding: .9em 1.1em;
+      font-size: .84em; line-height: 1.6;
+      font-family: 'SFMono-Regular',Consolas,monospace;
+      background: transparent !important;
+      color: inherit !important;
+    }
+    /* 复制按钮 */
+    .copy-btn {
+      position: absolute; top: 6px; right: 8px;
+      background: #e2e8f0; border: none; border-radius: 4px;
+      padding: 2px 8px; font-size: .75em; cursor: pointer;
+      color: #64748b; transition: background .15s;
+    }
+    .copy-btn:hover { background: #cbd5e1; }
+    /* 表格 */
+    .md-content table {
+      border-collapse: collapse; width: 100%; margin: .7em 0;
+      font-size: .9em;
+    }
+    .md-content th,.md-content td {
+      border: 1px solid #e2e8f0; padding: .45em .7em; text-align: left;
+    }
+    .md-content th { background: #f1f5f9; font-weight: 600; }
+    .md-content tr:nth-child(even) td { background: #f8fafc; }
+    /* 分割线 */
+    .md-content hr { border: none; border-top: 1px solid #e2e8f0; margin: .8em 0; }
+    /* 消息中的图片 */
+    .md-content img,.msg-img {
+      max-width: 100%; max-height: 320px;
+      border-radius: 8px; margin: .4em 0;
+      border: 1px solid #e2e8f0; cursor: zoom-in;
+    }
+    /* ===== 用户消息气泡里的 md (白色系) ===== */
+    .user-bubble .md-content :not(pre) > code { background: rgba(255,255,255,.25); color: #fff; }
+    .user-bubble .md-content pre { background: rgba(0,0,0,.18); border-color: rgba(255,255,255,.2); }
+    .user-bubble .md-content pre code { color: #e2e8f0 !important; }
+    .user-bubble .md-content blockquote { background: rgba(255,255,255,.15); border-left-color: rgba(255,255,255,.6); color: #e0e7ff; }
+    .user-bubble .md-content th { background: rgba(255,255,255,.15); }
+    .user-bubble .md-content th,.user-bubble .md-content td { border-color: rgba(255,255,255,.25); }
+
+    /* ===== 附件预览区 ===== */
+    #attachment-preview { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 6px; }
+    .attach-thumb {
+      position: relative; border-radius: 8px; overflow: hidden;
+      border: 1px solid #e2e8f0; background: #f8fafc;
+    }
+    .attach-thumb img { width: 72px; height: 72px; object-fit: cover; display: block; }
+    .attach-file {
+      width: 140px; height: 48px; display: flex; align-items: center; gap: 8px;
+      padding: 0 10px; font-size: .8em; color: #475569;
+    }
+    .attach-remove {
+      position: absolute; top: 2px; right: 2px;
+      background: rgba(0,0,0,.55); color: #fff;
+      border: none; border-radius: 50%; width: 18px; height: 18px;
+      font-size: .7em; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    /* ===== 输入区工具栏 ===== */
+    #input-toolbar { display: flex; align-items: center; gap: 4px; padding: 4px 0 2px; }
+    .tool-btn {
+      background: none; border: none; cursor: pointer;
+      color: #94a3b8; font-size: .95em; padding: 4px 6px;
+      border-radius: 6px; transition: color .15s, background .15s;
+    }
+    .tool-btn:hover { color: #6366f1; background: #eef2ff; }
+
+    /* ===== 图片灯箱 ===== */
+    #lightbox {
+      display: none; position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,.82); align-items: center; justify-content: center;
+    }
+    #lightbox.open { display: flex; }
+    #lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 8px; }
+    #lightbox-close {
+      position: absolute; top: 18px; right: 24px;
+      color: #fff; font-size: 1.6em; cursor: pointer; background: none; border: none;
+    }
+
+    /* ===== 拖拽高亮 ===== */
+    #chat-input-area.drag-over { outline: 2px dashed #6366f1; background: #eef2ff; border-radius: 12px; }
   </style>
 </head>
 <body class="bg-slate-100 h-screen flex flex-col overflow-hidden">
+
   <!-- 顶栏 -->
   <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shrink-0">
     <h1 class="text-xl font-bold text-slate-800">
@@ -67,15 +198,44 @@
       <!-- 学习问答模式 -->
       <section id="learn-panel" class="flex-1 flex flex-col overflow-hidden">
         <div id="chat-box" class="flex-1 overflow-y-auto chat-scroll p-6 space-y-4"></div>
-        <div class="border-t border-slate-200 bg-white p-4 shrink-0">
-          <div class="flex gap-2 max-w-3xl mx-auto items-end">
-            <textarea id="chat-input" rows="1" placeholder="说说你的想法,或问我任何架构问题...(Shift+Enter 换行)"
-              class="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none leading-relaxed max-h-48 overflow-y-auto chat-scroll"></textarea>
-            <button id="chat-send" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg shrink-0">
-              <i class="fas fa-paper-plane"></i>
-            </button>
+
+        <!-- 输入区 -->
+        <div class="border-t border-slate-200 bg-white px-4 pt-3 pb-4 shrink-0" id="chat-input-area">
+          <div class="max-w-3xl mx-auto">
+
+            <!-- 附件预览行 -->
+            <div id="attachment-preview"></div>
+
+            <!-- 工具栏 -->
+            <div id="input-toolbar">
+              <!-- 上传附件按钮 -->
+              <button class="tool-btn" id="attach-btn" title="上传图片或文件">
+                <i class="fas fa-paperclip"></i>
+              </button>
+              <!-- 上传图片专用快捷键 -->
+              <button class="tool-btn" id="img-btn" title="上传图片">
+                <i class="fas fa-image"></i>
+              </button>
+              <span class="flex-1"></span>
+              <span class="text-xs text-slate-400">支持粘贴图片 · 拖拽上传 · Shift+Enter 换行</span>
+            </div>
+
+            <!-- 文本输入行 -->
+            <div class="flex gap-2 items-end">
+              <textarea id="chat-input" rows="1"
+                placeholder="说说你的想法,或问我任何架构问题..."
+                class="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none leading-relaxed max-h-48 overflow-y-auto chat-scroll"></textarea>
+              <button id="chat-send" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg shrink-0">
+                <i class="fas fa-paper-plane"></i>
+              </button>
+            </div>
+
           </div>
         </div>
+
+        <!-- 隐藏 file input -->
+        <input type="file" id="file-input" class="hidden" multiple accept="image/*,.pdf,.txt,.md,.csv,.json">
+        <input type="file" id="img-input" class="hidden" multiple accept="image/*">
       </section>
 
       <!-- 作业练习模式 -->
@@ -104,6 +264,12 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- 图片灯箱 -->
+  <div id="lightbox">
+    <button id="lightbox-close"><i class="fas fa-times"></i></button>
+    <img id="lightbox-img" src="" alt="预览">
   </div>
 
   <script src="/app.js"></script>
