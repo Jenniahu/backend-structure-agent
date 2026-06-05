@@ -51,6 +51,24 @@ export interface AssignmentData {
   assignments: Assignment[]
 }
 
+export interface TeachingPhaseSpec {
+  phase: string
+  goal: string
+  triggerQuestion?: string
+  successSignal?: string
+  keyPoints?: string[]
+  scenario?: string
+  message?: string
+  minTurns: number
+  maxTurns: number
+}
+
+export interface TopicSpec {
+  topicId: string
+  teachingFlow: TeachingPhaseSpec[]
+  assignmentFrameworkHints: Record<string, string[]>
+}
+
 // ---------- 简单内存缓存(读一次缓存住)----------
 const cache = new Map<string, any>()
 
@@ -101,4 +119,13 @@ export function getAssignments(topicId: string): AssignmentData | null {
 /** 获取单道作业题 */
 export function getAssignment(topicId: string, assignmentId: string): Assignment | undefined {
   return getAssignments(topicId)?.assignments.find((a) => a.id === assignmentId)
+}
+
+/** 获取主题的教学引擎 Spec。没有 spec 的主题保持旧行为。 */
+export function getTopicSpec(topicId: string): TopicSpec | null {
+  try {
+    return readJson<TopicSpec>(`specs/${topicId}.json`)
+  } catch {
+    return null
+  }
 }

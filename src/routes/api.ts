@@ -4,6 +4,7 @@ import {
   getTopics,
   getTopic,
   getAssignments,
+  getTopicSpec,
 } from '../services/knowledge.ts'
 import { teachChat, gradeAssignment, type ChatMessage } from '../services/agent.ts'
 import {
@@ -13,6 +14,7 @@ import {
   getErrorProfile,
 } from '../services/memory.ts'
 import { query } from '../db/pool.ts'
+import { getOrInitPhaseState, incrementTurns } from '../services/phase.ts'
 
 /**
  * 核心业务路由。全部需要登录(挂 requireAuth)。
@@ -51,6 +53,7 @@ apiRoutes.get('/topics/:id/assignments', async (c) => {
   const topicId = c.req.param('id')
   const data = getAssignments(topicId)
   if (!data) return c.json({ error: '该主题暂无作业' }, 404)
+  const spec = getTopicSpec(topicId)
   // 只返回题目,不暴露 rubric 细节
   return c.json({
     topic: topicId,
@@ -59,6 +62,7 @@ apiRoutes.get('/topics/:id/assignments', async (c) => {
       level: a.level,
       title: a.title,
       prompt: a.prompt,
+      frameworkHints: spec?.assignmentFrameworkHints?.[a.level] || [],
     })),
   })
 })
@@ -74,8 +78,13 @@ apiRoutes.post('/chat', async (c) => {
   const msgs: ChatMessage[] = Array.isArray(history) ? history : []
 
   try {
-    const reply = await teachChat(topicId, msgs, mem)
-    return c.json({ reply })
+    const spec = getTopicSpec(topicId)
+    const phaseState = spec ? await getOrInitPhaseState(user.id, topicId, spec) : undefined
+    const rawReply = await teachChat(topicId, msgs, mem, phaseState, spec)
+    const canAdvance = rawReply.includes('[PHASE_READY_TO_ADVANCE]')
+    const reply = rawReply.replace(/\[PHASE_READY_TO_ADVANCE\]/g, '').trim()
+    if (phaseState) await incrementTurns(user.id, topicId)
+    return c.json({ reply, canAdvance })
   } catch (e: any) {
     return c.json({ error: e.message || 'AI 调用失败' }, 500)
   }

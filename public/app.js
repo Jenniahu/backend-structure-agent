@@ -51,6 +51,16 @@ function renderMd(text) {
   })
 }
 
+function escapeHtml(text) {
+  return String(text || '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]))
+}
+
 /** 复制代码块内容到剪贴板 */
 window.copyCode = function(btn) {
   const code = decodeURIComponent(btn.dataset.code)
@@ -67,6 +77,7 @@ const state = {
   currentTopicTitle: '缓存',
   history: [],          // 当前主题的对话历史(短期记忆)
   currentAssignment: null,
+  phaseState: null,
   pendingAttachments: [],  // { type:'image'|'file', name, dataUrl, mimeType }
 }
 
@@ -79,7 +90,7 @@ async function init() {
   initMarkdown()
   await loadTopics()
   await loadProfile()
-  selectTopic('cache', '缓存')
+  await selectTopic('cache', '缓存')
   bindEvents()
   initLightbox()
 }
@@ -128,10 +139,20 @@ async function loadProfile() {
 }
 
 // ---------- 选择主题 ----------
-function selectTopic(id, title) {
+async function loadPhaseState(topicId) {
+  try {
+    state.phaseState = await api(`/api/phase/${topicId}`)
+  } catch {
+    state.phaseState = null
+  }
+  return state.phaseState
+}
+
+async function selectTopic(id, title) {
   state.currentTopic = id
   state.currentTopicTitle = title
   state.history = []
+  state.phaseState = null
   const topic = state.topics.find(t => t.id === id)
   $('topic-title').textContent = title
   $('topic-sub').textContent = topic ? topic.subtitle : ''
@@ -142,8 +163,14 @@ function selectTopic(id, title) {
   $('report').classList.add('hidden')
   $('report').innerHTML = ''
   clearAttachments()
-  addMessage('assistant', `我们开始学习「${title}」。我会带你一步步建立思路,随时打断我提问。准备好了吗?先告诉我:你觉得${title}主要是用来解决什么问题的?`)
-  loadAssignments(id)
+  $('assignment-hints').classList.add('hidden')
+  $('assignment-hints').innerHTML = ''
+  const phase = await loadPhaseState(id)
+  const opener = phase?.triggerQuestion
+    ? `我们开始学习「${title}」。现在是 **${phase.currentPhase}** 阶段：${phase.phaseGoal}\n\n${phase.triggerQuestion}`
+    : `我们开始学习「${title}」。我会带你一步步建立思路,随时打断我提问。准备好了吗?先告诉我:你觉得${title}主要是用来解决什么问题的?`
+  addMessage('assistant', opener)
+  await loadAssignments(id)
 }
 
 // ---------- 消息渲染 ----------
@@ -196,6 +223,38 @@ function showTyping() {
   box.scrollTop = box.scrollHeight
 }
 function hideTyping() { const t = $('typing-indicator'); if (t) t.remove() }
+
+function showAdvancePrompt() {
+  const box = $('chat-box')
+  const div = document.createElement('div')
+  div.className = 'flex justify-start phase-advance'
+  div.innerHTML = `
+    <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 text-sm text-slate-700 shadow-sm">
+      <div class="font-medium text-indigo-700 mb-2"><i class="fas fa-arrow-right"></i> 进入下一阶段？</div>
+      <button class="phase-advance-btn bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm">
+        确认进入
+      </button>
+    </div>`
+  div.querySelector('.phase-advance-btn').onclick = async () => {
+    const btn = div.querySelector('.phase-advance-btn')
+    btn.disabled = true
+    btn.textContent = '推进中...'
+    try {
+      const data = await api(`/api/phase/${state.currentTopic}/advance`, { method: 'POST' })
+      state.phaseState = data.state || await loadPhaseState(state.currentTopic)
+      div.remove()
+      const message = data.message || '已进入下一阶段。'
+      addMessage('assistant', message)
+      state.history.push({ role: 'assistant', content: message })
+    } catch (err) {
+      btn.disabled = false
+      btn.textContent = '确认进入'
+      addMessage('assistant', '暂时还不能进入下一阶段：' + err.message)
+    }
+  }
+  box.appendChild(div)
+  box.scrollTop = box.scrollHeight
+}
 
 // textarea 随内容自动增高
 function autoGrow(el) {
@@ -288,6 +347,7 @@ async function sendChat() {
     hideTyping()
     addMessage('assistant', data.reply)
     state.history.push({ role: 'assistant', content: data.reply })
+    if (data.canAdvance) showAdvancePrompt()
   } catch (err) {
     hideTyping()
     addMessage('assistant', '抱歉,出错了:' + err.message)
@@ -298,6 +358,8 @@ async function sendChat() {
 async function loadAssignments(topicId) {
   $('assignment-card').classList.add('hidden')
   $('answer-area').classList.add('hidden')
+  $('assignment-hints').classList.add('hidden')
+  $('assignment-hints').innerHTML = ''
   $('report').classList.add('hidden')
   try {
     const data = await api(`/api/topics/${topicId}/assignments`)
@@ -319,10 +381,42 @@ function selectAssignment(a) {
   $('assignment-prompt').textContent = a.prompt
   $('assignment-card').classList.remove('hidden')
   $('answer-area').classList.remove('hidden')
+  renderAssignmentHints(a)
   $('answer-input').value = ''
   $('report').classList.add('hidden')
   document.querySelectorAll('.assign-tab').forEach(b =>
     b.classList.toggle('border-indigo-500', b.dataset.id === a.id))
+}
+
+function renderAssignmentHints(a) {
+  const box = $('assignment-hints')
+  const hints = Array.isArray(a.frameworkHints) ? a.frameworkHints : []
+  if (!hints.length) {
+    box.classList.add('hidden')
+    box.innerHTML = ''
+    return
+  }
+  const learnedFramework = state.phaseState?.completedPhases?.includes('FRAMEWORK') ||
+    state.phaseState?.currentPhase === 'DRILL' ||
+    state.phaseState?.currentPhase === 'CONNECT' ||
+    state.phaseState?.currentPhase === 'COMPLETED'
+  const status = learnedFramework
+    ? '<span class="text-green-700"><i class="fas fa-check-circle"></i> 你在学习中已练习过这些框架</span>'
+    : '<span class="text-amber-700"><i class="fas fa-lightbulb"></i> 建议先完成学习问答中的框架讲解再作答</span>'
+  box.innerHTML = `
+    <details open class="bg-white rounded-xl p-4 shadow-sm border border-indigo-100 mb-4">
+      <summary class="cursor-pointer font-medium text-slate-800 list-none flex items-center justify-between">
+        <span><i class="fas fa-clipboard-list text-indigo-500"></i> 答题框架提示</span>
+        <i class="fas fa-chevron-down text-slate-400 text-xs"></i>
+      </summary>
+      <div class="mt-3 text-sm">
+        <div class="mb-2">${status}</div>
+        <ul class="space-y-1.5 text-slate-600 list-disc pl-5">
+          ${hints.map(h => `<li>${escapeHtml(h)}</li>`).join('')}
+        </ul>
+      </div>
+    </details>`
+  box.classList.remove('hidden')
 }
 
 async function submitAnswer() {

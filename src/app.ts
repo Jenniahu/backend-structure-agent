@@ -3,6 +3,7 @@ import { logger } from 'hono/logger'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { authRoutes } from './routes/auth.ts'
 import { apiRoutes } from './routes/api.ts'
+import { phaseRoutes } from './routes/phase.ts'
 
 /**
  * Hono 应用主入口。
@@ -20,6 +21,7 @@ app.get('/api/health', (c) => {
 
 // ====== 业务路由 ======
 app.route('/api/auth', authRoutes)
+app.route('/api/phase', phaseRoutes)
 app.route('/api', apiRoutes)
 
 // 静态资源(前端页面),放在最后兜底

@@ -6,7 +6,9 @@ import {
   getTopicMaterial,
   getAssignments,
   getAssignment,
+  type TopicSpec,
 } from './knowledge.ts'
+import { getCurrentPhaseSpec, type PhaseState } from './phase.ts'
 
 /**
  * Agent 核心:把「教学方法论 + 知识库素材 + 用户长期记忆」组装成 Prompt,
@@ -46,6 +48,40 @@ function renderMemory(mem?: MemoryProfile): string {
   return lines.join('\n')
 }
 
+function renderPhaseContext(phaseState?: PhaseState, spec?: TopicSpec | null): string {
+  if (!phaseState || !spec) return ''
+  if (phaseState.currentPhase === 'COMPLETED') {
+    return `【当前教学阶段】
+- 当前阶段：COMPLETED
+- 本主题的阶段式学习已完成。可以继续答疑，但要鼓励学生去作业中使用系统设计框架。`
+  }
+
+  const current = getCurrentPhaseSpec(spec, phaseState.currentPhase)
+  if (!current) return ''
+  const currentIndex = spec.teachingFlow.findIndex((p) => p.phase === current.phase)
+  const futurePhases = spec.teachingFlow.slice(currentIndex + 1).map((p) => p.phase).join('、') || '无'
+  const keyPoints = current.keyPoints?.length
+    ? `\n- 本阶段关键点：${current.keyPoints.join('；')}`
+    : ''
+  const task = current.triggerQuestion || current.scenario || current.message || ''
+
+  return `【当前教学阶段】
+- 已完成阶段：${phaseState.completedPhases.length ? phaseState.completedPhases.join('、') : '无'}
+- 当前阶段：${current.phase}
+- 当前阶段目标：${current.goal}
+- 成功信号：${current.successSignal || '学生能用自己的话说明本阶段核心思路'}
+- 已在本阶段对话 ${phaseState.turnsInPhase} 轮（最少 ${current.minTurns} 轮，上限 ${current.maxTurns} 轮）
+- 当前阶段启动问题/任务：${task || '围绕当前阶段目标继续追问'}${keyPoints}
+
+【本阶段行为规则——非常重要】
+1. 你的首要任务是达成当前阶段目标，不要偏离。
+2. 成功信号达成后，在回复末尾加上标记 [PHASE_READY_TO_ADVANCE]。
+3. 如果已对话轮数 >= 上限轮数，无论是否完全达成，也主动建议推进并附上标记 [PHASE_READY_TO_ADVANCE]。
+4. 如果学生提前问了后续阶段的内容，简短回答后顺势引导，可以适当提前推进。
+5. 当前处于 ${current.phase} 阶段，不要完整展开 ${futurePhases} 阶段的内容。
+6. 标记只放在回复最后，不要解释标记本身。`
+}
+
 // ====== 公共系统人设 ======
 const PERSONA = `你是「ArchLearn」——一位专门帮计算机专业学生建立后端架构设计思维的 AI 导师。
 你的教学铁律:
@@ -76,7 +112,9 @@ E. 学生答对时,先肯定,再用一个【更进一步的具体场景】追问
 export async function teachChat(
   topicId: string,
   history: ChatMessage[],
-  mem?: MemoryProfile
+  mem?: MemoryProfile,
+  phaseState?: PhaseState,
+  spec?: TopicSpec | null
 ): Promise<string> {
   const topic = getTopic(topicId)
   const material = getTopicMaterial(topicId)
@@ -89,6 +127,8 @@ export async function teachChat(
 
 【本主题教学素材(你必须基于此讲解,不要跑题)】
 ${material}
+
+${renderPhaseContext(phaseState, spec)}
 
 【这位学生的长期记忆画像】
 ${renderMemory(mem)}
